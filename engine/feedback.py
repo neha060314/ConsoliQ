@@ -229,17 +229,23 @@ class FeedbackStore:
         Convenience method: record outcomes for all zones in one call.
         Pass the output of pack_groups() (groups with _load_factor annotated).
 
-        Groups each shipment to its zone via pickup_lat/lng + resolution_used,
-        aggregates load factors per zone, then calls update() per zone.
+        Zone ID is derived from a pure-Python lat/lng grid cell (no h3 needed).
+        Grid size is controlled by resolution_used:
+          res 6 → 1.0° grid  (~110km squares, coarse)
+          res 7 → 0.5° grid  (~55km squares, default)
+          res 8 → 0.25° grid (~28km squares, fine)
+          res 9 → 0.1° grid  (~11km squares, very fine)
+        This mirrors h3's resolution semantics without requiring C extensions.
         """
-        try:
-            import h3
-        except ImportError:
-            logger.warning(
-                "FeedbackStore.record_run: `h3` package not installed; skipping feedback learning. "
-                "Install it via `pip install h3` to enable adaptive zoning."
-            )
-            return
+        # Resolution → grid step size mapping (degrees)
+        GRID_STEP = {6: 1.0, 7: 0.5, 8: 0.25, 9: 0.1, 10: 0.05}
+        step = GRID_STEP.get(resolution_used, 0.5)
+
+        def _cell_id(lat: float, lng: float) -> str:
+            """Snap lat/lng to nearest grid corner → deterministic zone key."""
+            cell_lat = math.floor(lat / step) * step
+            cell_lng = math.floor(lng / step) * step
+            return f"grid_{cell_lat:.3f}_{cell_lng:.3f}_r{resolution_used}"
 
         zone_lf_samples: Dict[str, List[float]] = {}
 
@@ -247,9 +253,7 @@ class FeedbackStore:
             lf = group[0].get("_load_factor", 0.0)
             for s in group:
                 try:
-                    cell = h3.latlng_to_cell(
-                        s["pickup_lat"], s["pickup_lng"], resolution_used
-                    )
+                    cell = _cell_id(s["pickup_lat"], s["pickup_lng"])
                     zone_lf_samples.setdefault(cell, []).append(lf)
                 except Exception:
                     pass
@@ -328,28 +332,23 @@ def get_zone_resolutions(
     For each shipment, look up the learned resolution for its zone.
     Returns {cell_at_default_res: learned_resolution}.
 
-    Called by clustering.get_valid_groups() when a FeedbackStore is provided.
-    Shipments in zones with no history use default_resolution.
+    Uses pure-Python lat/lng grid cells (no h3 required).
     """
-    try:
-        import h3
-    except ImportError:
-        logger.warning(
-            "get_zone_resolutions: `h3` package not installed; falling back to default resolution. "
-            "Install it via `pip install h3` to enable adaptive zoning."
-        )
-        return {}
-
     if store is None:
         return {}
+
+    GRID_STEP = {6: 1.0, 7: 0.5, 8: 0.25, 9: 0.1, 10: 0.05}
+    step = GRID_STEP.get(default_resolution, 0.5)
+
+    def _cell_id(lat: float, lng: float) -> str:
+        cell_lat = math.floor(lat / step) * step
+        cell_lng = math.floor(lng / step) * step
+        return f"grid_{cell_lat:.3f}_{cell_lng:.3f}_r{default_resolution}"
 
     zone_res: Dict[str, int] = {}
     for s in shipments:
         try:
-            # Use default resolution to identify the zone
-            cell = h3.latlng_to_cell(
-                s["pickup_lat"], s["pickup_lng"], default_resolution
-            )
+            cell = _cell_id(s["pickup_lat"], s["pickup_lng"])
             if cell not in zone_res:
                 zone_res[cell] = store.get_resolution(cell, default_resolution)
         except Exception:
