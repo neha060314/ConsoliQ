@@ -690,13 +690,35 @@ if st.session_state.packed is not None:
                                  f"LF {_mg['lf']:.0%} | {_mg['wt']:,.0f}kg"),
                     ).add_to(_m)
 
-            _legend = """<div style="position:fixed;bottom:30px;left:30px;z-index:1000;
-                background:white;padding:12px;border-radius:8px;
-                box-shadow:0 2px 8px rgba(0,0,0,.2);font-size:12px">
-                <b>🗺️ Route Map</b><br>
-                ● Filled = Pickup hub<br>○ Ring = Delivery point<br>
-                — Thicker line = Higher LF<br>Each colour = one truck</div>"""
-            _m.get_root().html.add_child(folium.Element(_legend))
+            # Add legend as a proper Leaflet control via JavaScript injection
+            _legend_js = """
+            var legend = L.control({position: 'bottomleft'});
+            legend.onAdd = function(map) {
+                var div = L.DomUtil.create('div', 'route-legend');
+                div.innerHTML = '<b>🗺️ Route Map</b><br>'
+                    + '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#555;margin-right:4px"></span>Filled = Pickup hub<br>'
+                    + '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;border:2px solid #555;margin-right:4px"></span>Ring = Delivery point<br>'
+                    + '— Thicker line = Higher LF<br>'
+                    + 'Each colour = one truck';
+                return div;
+            };
+            legend.addTo(this);
+            """
+            _legend_css = """
+            <style>
+            .route-legend {
+                background: white;
+                padding: 10px 14px;
+                border-radius: 8px;
+                box-shadow: 0 2px 8px rgba(0,0,0,.25);
+                font-size: 12px;
+                line-height: 1.7;
+                pointer-events: none;
+            }
+            </style>
+            """
+            _m.get_root().html.add_child(folium.Element(_legend_css))
+            _m.get_root().script.add_child(folium.Element(_legend_js))
             st_folium(_m, width="100%", height=520)
             _map_rendered = True
 
@@ -748,25 +770,40 @@ if st.session_state.packed is not None:
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
-  body{{margin:0;padding:0}}
-  #map{{width:100%;height:520px}}
-  .legend{{position:absolute;bottom:20px;left:20px;z-index:1000;
-    background:white;padding:10px 14px;border-radius:8px;
-    box-shadow:0 2px 8px rgba(0,0,0,.2);font-size:12px;line-height:1.6}}
+  html, body {{margin:0;padding:0;height:100%}}
+  #map {{width:100%;height:480px;position:relative}}
+  .info.legend {{
+    background: white;
+    padding: 10px 14px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    font-size: 12px;
+    line-height: 1.7;
+    pointer-events: none;
+  }}
 </style></head><body>
 <div id="map"></div>
-<div class="legend">
-  <b>🗺️ ConsoliQ Route Map</b><br>
-  ● Filled = Pickup hub<br>○ Ring = Delivery point<br>
-  — Thicker line = Higher LF<br>Each colour = one truck<br>
-  <span style="color:#666;font-size:11px">{len(_map_groups)} trucks | hover for details</span>
-</div>
 <script>
 var map = L.map('map').setView([{_clat:.4f},{_clng:.4f}],6);
 L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png',{{
-  attribution:'&copy; OpenStreetMap &copy; CARTO',maxZoom:19}}).addTo(map);
+  attribution:'&copy; OpenStreetMap contributors &copy; CARTO',maxZoom:19}}).addTo(map);
 {''.join(_lines_js)}
 {''.join(_markers_js)}
+
+// Legend as a proper Leaflet control — renders inside the map tile layer correctly
+var legend = L.control({{position: 'bottomleft'}});
+legend.onAdd = function(map) {{
+  var div = L.DomUtil.create('div', 'info legend');
+  div.innerHTML =
+    '<b>🗺️ ConsoliQ Route Map</b><br>' +
+    '<svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#555"/></svg> Pickup hub&nbsp;&nbsp;<br>' +
+    '<svg width="12" height="12"><circle cx="6" cy="6" r="4" fill="white" stroke="#555" stroke-width="2"/></svg> Delivery point<br>' +
+    '&#x2014; Thicker line = Higher LF<br>' +
+    'Each colour = one truck<br>' +
+    '<span style="color:#666;font-size:11px">{len(_map_groups)} trucks dispatched</span>';
+  return div;
+}};
+legend.addTo(map);
 </script></body></html>"""
 
             _components.html(_map_html, height=540, scrolling=False)
