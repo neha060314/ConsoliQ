@@ -103,14 +103,25 @@ def run_scenario(
     clustering params are patched as module globals (only mechanism available).
     route_compat params are passed directly as function arguments.
     """
-    import engine.clustering   as clustering_mod
-    from engine.clustering   import get_valid_groups
-    from engine.route_compat import apply_route_filter
-    from engine.bin_packing  import (
-        pack_groups, avg_load_factor, avg_weight_utilization,
-        avg_volume_utilization, avg_spatial_utilization,
-        total_cost_inr, total_co2_kg, vehicle_mix, savings_vs_solo,
-    )
+    # Support both root-level (app.py) and direct invocation paths
+    try:
+        import engine.clustering   as clustering_mod
+        from engine.clustering   import get_valid_groups
+        from engine.route_compat import apply_route_filter
+        from engine.bin_packing  import (
+            pack_groups, avg_load_factor, avg_weight_utilization,
+            avg_volume_utilization, avg_spatial_utilization,
+            total_cost_inr, total_co2_kg, vehicle_mix, savings_vs_solo,
+        )
+    except ImportError:
+        import clustering   as clustering_mod
+        from clustering   import get_valid_groups
+        from route_compat import apply_route_filter
+        from bin_packing  import (
+            pack_groups, avg_load_factor, avg_weight_utilization,
+            avg_volume_utilization, avg_spatial_utilization,
+            total_cost_inr, total_co2_kg, vehicle_mix, savings_vs_solo,
+        )
 
     t0 = time.time()
 

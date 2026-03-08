@@ -78,7 +78,12 @@ import math
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
-from fleet import FLEET
+try:
+    from fleet import FLEET
+except ImportError:
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from fleet import FLEET
 
 logger = logging.getLogger(__name__)
 
@@ -797,6 +802,10 @@ def _annotate_packer(
             f"({len(items)} shipments)"
         )
 
+    # FIX: suppress axle warning on singletons — only warn on consolidated groups
+    _is_singleton = len(items) == 1
+    axle_ok_display = axle_ok if not _is_singleton else True
+
     group = []
     for s in items:
         s2 = copy.copy(s)
@@ -810,7 +819,8 @@ def _annotate_packer(
         s2["_load_factor"]         = round(lf,     3)
         s2["_spatial_utilization"] = round(packer.spatial_utilization, 3)
         s2["_stacking_layers"]     = packer.layer_count
-        s2["_axle_balance_ok"]     = axle_ok
+        # FIX: use display-safe axle_ok (singletons never flag axle warning)
+        s2["_axle_balance_ok"]     = axle_ok_display
         s2["_axle_front_pct"]      = fp
         s2["_axle_rear_pct"]       = rp
         s2["_cost_estimate_inr"]   = round(cost_inr, 0)

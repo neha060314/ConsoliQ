@@ -56,8 +56,16 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Callable, Dict, List, Optional, Tuple
 
-from engine.geocoder import get_hub_name, warm_cache, cache_stats
-from fleet import FLEET
+try:
+    from engine.geocoder import get_hub_name, warm_cache, cache_stats
+except ImportError:
+    from geocoder import get_hub_name, warm_cache, cache_stats
+try:
+    from fleet import FLEET
+except ImportError:
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from fleet import FLEET
 
 logger = logging.getLogger(__name__)
 
@@ -757,6 +765,8 @@ def get_valid_groups(
         all_groups.extend(groups)
 
     all_groups = split_oversized(all_groups)
+    # FIX: second pass — re-cluster same-lane singletons the first pass missed
+    all_groups = _second_pass_singleton_regroup(all_groups)
     all_groups = annotate(all_groups)
 
     singleton_ct  = sum(1 for g in all_groups if len(g) == 1)
@@ -778,3 +788,87 @@ def get_valid_groups(
         f"  trucks saved (est): {saved_trucks}"
     )
     return all_groups
+
+# ═══════════════════════════════════════════════════════════════════════
+#  FIX: SECOND-PASS SINGLETON RE-CLUSTERING
+#  After the main pipeline, any singletons on IDENTICAL lanes (same
+#  _pickup_hub + _delivery_hub) are re-grouped if their combined weight
+#  fits the largest truck AND they have time-window overlap.
+#  This directly fixes the Pune→Hyderabad × 3, Pune→Ahmedabad × 2 etc.
+# ═══════════════════════════════════════════════════════════════════════
+
+def _second_pass_singleton_regroup(groups: List[List[dict]]) -> List[List[dict]]:
+    """
+    Re-groups singletons on the same exact lane that the first pass missed.
+    Mutates groups in place — singletons absorbed into multi-ship groups.
+    Returns the reduced group list.
+    """
+    from collections import defaultdict
+
+    singletons_idx = [i for i, g in enumerate(groups) if len(g) == 1]
+    if not singletons_idx:
+        return groups
+
+    # Bucket singletons by exact lane key
+    lane_buckets: Dict[str, List[int]] = defaultdict(list)
+    for idx in singletons_idx:
+        s = groups[idx][0]
+        key = f"{s.get('_pickup_hub','?')}→{s.get('_delivery_hub','?')}"
+        lane_buckets[key].append(idx)
+
+    absorbed = set()
+    new_groups: List[List[dict]] = []
+
+    for lane, idxs in lane_buckets.items():
+        if len(idxs) < 2:
+            continue
+        # Greedy bin-packing within lane: accumulate until weight limit
+        available = [i for i in idxs if i not in absorbed]
+        if len(available) < 2:
+            continue
+
+        current_bin: List[dict] = []
+        current_w = 0.0
+
+        for idx in available:
+            s = groups[idx][0]
+            w = s.get("weight_kg", 0)
+            if current_w + w <= _MAX_CAPACITY:
+                # Check time overlap
+                if (not current_bin) or _window_overlap_seconds(current_bin, s) >= MIN_OVERLAP_SECONDS:
+                    current_bin.append(s)
+                    current_w += w
+                    absorbed.add(idx)
+                else:
+                    # New bin
+                    if len(current_bin) > 1:
+                        new_groups.append(current_bin)
+                    current_bin = [s]
+                    current_w = w
+                    absorbed.add(idx)
+            else:
+                if len(current_bin) > 1:
+                    new_groups.append(current_bin)
+                current_bin = [s]
+                current_w = w
+                absorbed.add(idx)
+
+        if len(current_bin) > 1:
+            new_groups.append(current_bin)
+        elif len(current_bin) == 1:
+            # Put this one back as singleton — remove from absorbed
+            for idx in available:
+                if groups[idx][0] is current_bin[0]:
+                    absorbed.discard(idx)
+
+    # Build final list: keep non-absorbed groups, add new merged groups
+    result = [g for i, g in enumerate(groups) if i not in absorbed]
+    result.extend(new_groups)
+
+    merged_count = len(new_groups)
+    if merged_count:
+        logger.info(
+            f"_second_pass_singleton_regroup: formed {merged_count} new groups "
+            f"from {len(absorbed)} previously lone singletons"
+        )
+    return result

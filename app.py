@@ -87,7 +87,9 @@ with st.sidebar:
     show_scenarios  = st.toggle("📊 Scenario Simulator",       value=True)
 
     st.divider()
-    st.caption("ConsoliQ v2.0 — LogisticsNow Hackathon 2026")
+    st.caption("ConsoliQ v2.1 — LogisticsNow Hackathon 2026")
+    st.divider()
+    st.caption("🎯 **Pipeline mode:** Balanced (default). Run Simulator → Ultra Aggressive for max trip reduction.")
 
 # ═══════════════════════════════════════════════════════════════════════
 #  LOAD DATA
@@ -128,9 +130,16 @@ for key in ["clustered", "routed", "packed", "savings", "feedback_summary"]:
     if key not in st.session_state:
         st.session_state[key] = None
 
+@st.cache_data(show_spinner=False, ttl=300)
+def _cached_cluster(records_tuple):
+    """Cache clustering results — expensive geocoder + union-find step."""
+    return get_valid_groups(list(records_tuple))
+
 if run_all or run_step1:
     with st.spinner("Step 1 — Clustering shipments by lane + time window..."):
-        st.session_state.clustered        = get_valid_groups(shipments)
+        # Convert to hashable tuple for cache key
+        _key = tuple(tuple(sorted(s.items())) for s in shipments)
+        st.session_state.clustered        = _cached_cluster(_key)
         st.session_state.routed           = None
         st.session_state.packed           = None
         st.session_state.savings          = None
@@ -474,9 +483,12 @@ if st.session_state.packed is not None:
         st.bar_chart(pd.DataFrame(list(mix.items()), columns=["Vehicle", "Count"]).set_index("Vehicle"))
 
     # ── UTILIZATION DISTRIBUTION ──────────────────────────────────────
-    dist = utilization_distribution(packed)
+    dist_raw = utilization_distribution(packed)
+    # FIX: rename "<40%" → "Under 40%" so it sorts last, avoiding negative bar bug
+    dist = {("Under 40%" if k == "<40%" else k): v for k, v in dist_raw.items()}
+    dist_ordered = {k: dist[k] for k in ["Under 40%", "40-60%", "60-80%", "80%+"]}
     st.caption("**Load factor distribution:**")
-    st.bar_chart(pd.DataFrame(list(dist.items()), columns=["Bucket", "Trucks"]).set_index("Bucket"))
+    st.bar_chart(pd.DataFrame(list(dist_ordered.items()), columns=["Bucket", "Trucks"]).set_index("Bucket"))
 
     # ── LANE EFFICIENCY TABLE ─────────────────────────────────────────
     st.caption("**Lane efficiency:**")
@@ -515,8 +527,9 @@ if st.session_state.packed is not None:
             lane   = group[0].get("_group_lane") or group[0].get("_lane", "N/A")
 
             tags = []
-            if convoy:    tags.append("🚛 convoy")
-            if not axle:  tags.append("⚖️ axle warning")
+            if convoy: tags.append("🚛 convoy")
+            # FIX: only show axle warning on consolidated multi-shipment trucks
+            if not axle and len(group) > 1: tags.append("⚖️ axle warning")
             if lf < 0.40: tags.append("⚠️ low util")
 
             lf_color = "🟢" if lf >= 0.70 else ("🟡" if lf >= 0.50 else "🔴")
@@ -891,6 +904,12 @@ if show_scenarios:
                     f"Cost saved: ₹{best.get('cost_saved_inr',0):,.0f} | "
                     f"CO₂ saved: {best.get('co2_saved_kg',0):,.0f} kg"
                 )
+                if best.get("id") != "balanced":
+                    st.info(
+                        f"💡 **Note:** The main pipeline uses **Balanced** parameters by default. "
+                        f"To run the full pipeline with **{best['label']}** parameters, "
+                        f"adjust the sliders in the Custom Scenario tab and use those as reference."
+                    )
 
     # ── CUSTOM SCENARIO ───────────────────────────────────────────────
     with sim_tab2:

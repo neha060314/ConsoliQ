@@ -389,8 +389,10 @@ class FeasibilityPredictor:
 
         if detour > 0.20:
             reasons.append(f"high detour ({detour:.0%} over direct)")
-        elif detour < 0.05:
+        elif detour > 0.0 and detour < 0.05:
             reasons.append("minimal detour")
+        elif detour == 0.0:
+            reasons.append("direct route (no multi-drop detour)")
 
         if delivery_spread > 150:
             reasons.append(f"wide delivery cluster ({delivery_spread:.0f} km)")
@@ -405,6 +407,9 @@ class FeasibilityPredictor:
 
         level = "HIGH" if score >= 0.7 else ("MEDIUM" if score >= 0.5 else "LOW")
         reasons_str = ", ".join(reasons) if reasons else "balanced profile"
+        # FIX: for singletons, "LOW" is expected — reframe as "monitor"
+        if level == "LOW" and n_ships == 1:
+            level = "LOW (singleton)"
         return f"{level} feasibility ({score:.0%}) — {reasons_str}"
 
     def feature_importance(self) -> Dict[str, float]:

@@ -181,11 +181,11 @@ def utilization_distribution(groups: List[List[dict]]) -> Dict[str, int]:
     Histogram of load factors: <40%, 40-60%, 60-80%, 80%+
     Used for the utilization breakdown chart.
     """
-    buckets = {"<40%": 0, "40-60%": 0, "60-80%": 0, "80%+": 0}
+    buckets = {"Under 40%": 0, "40-60%": 0, "60-80%": 0, "80%+": 0}
     for g in groups:
         lf = g[0].get("_load_factor", 0) * 100
         if lf < 40:
-            buckets["<40%"] += 1
+            buckets["Under 40%"] += 1
         elif lf < 60:
             buckets["40-60%"] += 1
         elif lf < 80:
