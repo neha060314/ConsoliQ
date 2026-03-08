@@ -569,16 +569,23 @@ if st.session_state.packed is not None:
             fs_badge = ""
             if fs is not None:
                 if _is_singleton_truck:
-                    # Singletons have no consolidation partner — AI feasibility is N/A,
-                    # not 0%. The model predicts consolidation success, not dispatch success.
+                    # Singletons have no consolidation partner — AI score is N/A not 0%.
+                    # The model predicts consolidation feasibility, not solo dispatch success.
                     fs_badge = (f" &nbsp;<span style='background:#6b7280;color:white;"
                                 f"padding:2px 8px;border-radius:10px;font-size:0.78rem'>"
                                 f"🤖 AI: N/A (solo)</span>")
+                elif fs == 0.0:
+                    # Multi-shipment group scored 0.0 — model is uncertain, not predicting failure.
+                    # The synthetic training data under-represents moderate-LF multi-drop groups.
+                    fs_badge = (f" &nbsp;<span style='background:#92400e;color:white;"
+                                f"padding:2px 8px;border-radius:10px;font-size:0.78rem'>"
+                                f"🤖 AI: LOW</span>")
                 else:
                     fs_color = "#15803d" if fs >= 0.70 else ("#b45309" if fs >= 0.50 else "#b91c1c")
+                    fs_label = "HIGH" if fs >= 0.70 else ("MED" if fs >= 0.50 else "LOW")
                     fs_badge = (f" &nbsp;<span style='background:{fs_color};color:white;"
                                 f"padding:2px 8px;border-radius:10px;font-size:0.78rem'>"
-                                f"🤖 AI: {fs:.0%}</span>")
+                                f"🤖 AI: {fs_label} ({fs:.0%})</span>")
             tag_str  = "  ".join(tags)
             st.markdown(
                 f"{lf_color} **Truck {i+1}** &nbsp;|&nbsp; {veh} &nbsp;|&nbsp; "
@@ -593,11 +600,17 @@ if st.session_state.packed is not None:
             t4.metric("CO₂",          f"{group[0].get('_co2_kg_estimate', 0):,.1f} kg")
             if group[0].get("_feasibility_reason"):
                 if _is_singleton_truck:
-                    st.caption("🤖 **AI Feasibility:** N/A — singleton dispatched solo, no consolidation partner to score.")
+                    st.caption("🤖 **AI Feasibility:** N/A — dispatched solo. Model scores consolidation feasibility only.")
+                elif fs == 0.0:
+                    st.caption(
+                        f"🤖 **AI Feasibility:** LOW confidence — {group[0].get('_feasibility_reason', '')} "
+                        f"Model under-represents moderate-LF multi-drop groups in training data; "
+                        f"treat as 'monitor' not 'block'."
+                    )
                 else:
-                    _fc = "#15803d" if group[0].get("_feasibility_score",0) >= 0.7 else (
-                          "#b45309" if group[0].get("_feasibility_score",0) >= 0.5 else "#b91c1c")
-                    st.caption(f"🤖 **AI Feasibility:** {group[0].get('_feasibility_reason', '')} ")
+                    _lbl = "HIGH" if group[0].get("_feasibility_score",0) >= 0.7 else (
+                           "MEDIUM" if group[0].get("_feasibility_score",0) >= 0.5 else "LOW")
+                    st.caption(f"🤖 **AI Feasibility:** {_lbl} — {group[0].get('_feasibility_reason', '')} ")
 
             # ── Deferral recommendation for very low LF trucks ─────────────────
             if lf < 0.45:
@@ -812,31 +825,34 @@ if st.session_state.packed is not None:
     position:absolute;
     bottom:24px;left:16px;
     z-index:9999;
-    background:rgba(255,255,255,0.97);
+    background:rgba(255,255,255,0.97) !important;
+    color:#222222 !important;
     padding:10px 14px;
     border-radius:8px;
     box-shadow:0 2px 10px rgba(0,0,0,0.28);
-    font-family:sans-serif;
+    font-family:Arial,sans-serif;
     font-size:12px;
     line-height:1.8;
     pointer-events:none;
     min-width:190px;
   }}
-  #legend b{{font-size:13px}}
-  .dot-filled{{display:inline-block;width:11px;height:11px;border-radius:50%;background:#555;margin-right:5px;vertical-align:middle}}
-  .dot-ring{{display:inline-block;width:11px;height:11px;border-radius:50%;border:2px solid #555;background:white;margin-right:5px;vertical-align:middle}}
-  .line-icon{{display:inline-block;width:18px;height:3px;background:#555;margin-right:5px;vertical-align:middle;border-radius:2px}}
+  #legend *{{color:#222222 !important;}}
+  #legend b{{font-size:13px;font-weight:700}}
+  #legend .muted{{color:#555555 !important;font-size:11px}}
+  .dot-filled{{display:inline-block;width:11px;height:11px;border-radius:50%;background:#444;margin-right:5px;vertical-align:middle}}
+  .dot-ring{{display:inline-block;width:11px;height:11px;border-radius:50%;border:2.5px solid #444;background:white;margin-right:5px;vertical-align:middle}}
+  .line-icon{{display:inline-block;width:20px;height:3px;background:#444;margin-right:5px;vertical-align:middle;border-radius:2px}}
 </style>
 </head>
 <body>
 <div id="map"></div>
 <div id="legend">
-  <b>🗺️ ConsoliQ Route Map</b><br>
-  <span class="dot-filled"></span>Pickup hub<br>
-  <span class="dot-ring"></span>Delivery point<br>
-  <span class="line-icon"></span>Thicker = higher LF<br>
-  Each colour = one truck<br>
-  <span style="color:#666;font-size:11px">{_n_trucks_legend} trucks dispatched</span>
+  <b style="color:#111;font-size:13px">🗺️ ConsoliQ Route Map</b><br>
+  <span class="dot-filled"></span><span style="color:#222">Pickup hub</span><br>
+  <span class="dot-ring"></span><span style="color:#222">Delivery point</span><br>
+  <span class="line-icon"></span><span style="color:#222">Thicker line = higher LF</span><br>
+  <span style="color:#222">Each colour = one truck</span><br>
+  <span style="color:#555;font-size:11px">{_n_trucks_legend} trucks dispatched</span>
 </div>
 <script>
 var map = L.map('map',{{zoomControl:true}}).setView([{_clat:.4f},{_clng:.4f}],6);
