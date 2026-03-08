@@ -21,14 +21,6 @@ ENV/
 .idea/
 *.code-workspace
 
-# ── Data files (can be large / sensitive) ─────
-data/shipments.csv
-data/*.csv
-data/*.xlsx
-data/*.json
-# Keep feedback_store.json structure but not real data:
-# If you want to commit an empty template, uncomment below:
-# !data/feedback_store_template.json
 
 # ── Generated outputs / reports ───────────────
 *.png
