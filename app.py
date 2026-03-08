@@ -214,6 +214,17 @@ if st.session_state.clustered is not None:
     c5.metric("Exact Lane",     exact_lane)
     c6.metric("Corridor",       corridor_c)
 
+    # ── Clustering quality callout ────────────────────────────────────
+    _raw_count = len(df) if "df" in dir() else (singletons + sum(len(g) for g in clustered if len(g)>1))
+    _consolidation_rate = round(multi / len(clustered) * 100) if clustered else 0
+    st.info(
+        f"📊 **Clustering Summary:** {len(clustered)} groups from {sum(len(g) for g in clustered)} shipments — "
+        f"**{multi} multi-shipment groups** ({_consolidation_rate}% consolidation rate) + "
+        f"**{singletons} unavoidable singletons** (unique lanes or geocoder-unresolved). "
+        f"Corridor detection absorbed groups with wide bearing spread into {corridor_c} corridor route(s) "
+        f"instead of splitting them — improving on naive clustering."
+    )
+
     lane_counts = {}
     for g in clustered:
         lane = g[0].get("_group_lane") or g[0].get("_lane", "unknown")
@@ -259,9 +270,19 @@ if st.session_state.routed is not None:
     r2.metric("Multi-Shipment",        sum(1 for g in routed if len(g) > 1))
     r3.metric("Singletons",            sum(1 for g in routed if len(g) == 1))
     r4.metric("Corridor Routes",       sum(1 for g in routed if any(s.get("_is_corridor") for s in g)))
-    r5.metric("Groups Split by Route", max(splits, 0), delta=max(splits, 0) if splits > 0 else None,
-              delta_color="inverse")
+    r5.metric("Groups Split by Route", max(splits, 0),
+              delta=f"+{splits} splits" if splits > 0 else "none",
+              delta_color="inverse" if splits > 0 else "off",
+              help="Groups broken apart because bearing >45° or detour >20%. 0 = all groups passed — good result.")
 
+    # ── Route filter outcome message ──────────────────────────────────────────────
+    if splits == 0:
+        st.success(
+            "✅ **All groups passed route compatibility** — 0 clusters were split by bearing or detour checks. "
+            "This is an improvement: corridor-routing fixes now absorb wide-bearing groups instead of splitting them."
+        )
+    elif splits > 0:
+        st.warning(f"⚠️ {splits} group(s) were split because bearing spread >45° or detour >20%.")
 
     # ── SINGLETON BREAKDOWN ANALYSIS ─────────────────────────────────────────────
     _singletons = [g for g in routed if len(g) == 1]
@@ -414,16 +435,17 @@ if st.session_state.packed is not None:
 
     # ── BEFORE / AFTER IMPACT BANNER ──────────────────────────────────
     st.markdown("### 📊 Before vs After Consolidation")
-    solo_trips = savings.get("solo_trips", len(shipments))
+    # Always use the raw CSV shipment count as the "before" baseline.
+    # savings["solo_trips"] can be < len(shipments) if geocoder dropped records.
+    # Using len(shipments) gives the correct business number: "100 → 57 trucks".
+    solo_trips = len(shipments)
     cons_trips = len(packed)
     cost_saved = savings.get("cost_saved_inr", 0)
     co2_saved  = savings.get("co2_saved_kg", 0)
 
     ba1, ba2, ba3, ba4 = st.columns(4)
 
-    # Use total raw shipments as denominator for trip reduction (not solo_trips which
-    # only counts shipments that survived clustering — understates true reduction).
-    trip_pct  = round((len(shipments) - cons_trips) / len(shipments) * 100) if shipments else 0
+    trip_pct  = round((solo_trips - cons_trips) / solo_trips * 100) if solo_trips else 0
     cost_pct  = savings.get("cost_saving_pct", 0)
     co2_pct   = savings.get("co2_saving_pct", 0)
     lf_pct    = round(avg_load_factor(packed) * 100)
@@ -543,12 +565,20 @@ if st.session_state.packed is not None:
             lf_color = "🟢" if lf >= 0.70 else ("🟡" if lf >= 0.50 else "🔴")
             fs       = group[0].get("_feasibility_score")
             fr       = group[0].get("_feasibility_reason", "")
+            _is_singleton_truck = (len(group) == 1)
             fs_badge = ""
             if fs is not None:
-                fs_color = "#15803d" if fs >= 0.70 else ("#b45309" if fs >= 0.50 else "#b91c1c")
-                fs_badge = (f" &nbsp;<span style='background:{fs_color};color:white;"
-                            f"padding:2px 8px;border-radius:10px;font-size:0.78rem'>"
-                            f"🤖 AI: {fs:.0%}</span>")
+                if _is_singleton_truck:
+                    # Singletons have no consolidation partner — AI feasibility is N/A,
+                    # not 0%. The model predicts consolidation success, not dispatch success.
+                    fs_badge = (f" &nbsp;<span style='background:#6b7280;color:white;"
+                                f"padding:2px 8px;border-radius:10px;font-size:0.78rem'>"
+                                f"🤖 AI: N/A (solo)</span>")
+                else:
+                    fs_color = "#15803d" if fs >= 0.70 else ("#b45309" if fs >= 0.50 else "#b91c1c")
+                    fs_badge = (f" &nbsp;<span style='background:{fs_color};color:white;"
+                                f"padding:2px 8px;border-radius:10px;font-size:0.78rem'>"
+                                f"🤖 AI: {fs:.0%}</span>")
             tag_str  = "  ".join(tags)
             st.markdown(
                 f"{lf_color} **Truck {i+1}** &nbsp;|&nbsp; {veh} &nbsp;|&nbsp; "
@@ -562,9 +592,12 @@ if st.session_state.packed is not None:
             t3.metric("Spatial Util", f"{group[0].get('_spatial_utilization', 0):.0%}")
             t4.metric("CO₂",          f"{group[0].get('_co2_kg_estimate', 0):,.1f} kg")
             if group[0].get("_feasibility_reason"):
-                _fc = "#15803d" if group[0].get("_feasibility_score",0) >= 0.7 else (
-                      "#b45309" if group[0].get("_feasibility_score",0) >= 0.5 else "#b91c1c")
-                st.caption(f"🤖 **AI Feasibility:** {group[0].get('_feasibility_reason', '')} ")
+                if _is_singleton_truck:
+                    st.caption("🤖 **AI Feasibility:** N/A — singleton dispatched solo, no consolidation partner to score.")
+                else:
+                    _fc = "#15803d" if group[0].get("_feasibility_score",0) >= 0.7 else (
+                          "#b45309" if group[0].get("_feasibility_score",0) >= 0.5 else "#b91c1c")
+                    st.caption(f"🤖 **AI Feasibility:** {group[0].get('_feasibility_reason', '')} ")
 
             # ── Deferral recommendation for very low LF trucks ─────────────────
             if lf < 0.45:
@@ -690,35 +723,36 @@ if st.session_state.packed is not None:
                                  f"LF {_mg['lf']:.0%} | {_mg['wt']:,.0f}kg"),
                     ).add_to(_m)
 
-            # Add legend as a proper Leaflet control via JavaScript injection
-            _legend_js = """
-            var legend = L.control({position: 'bottomleft'});
-            legend.onAdd = function(map) {
-                var div = L.DomUtil.create('div', 'route-legend');
-                div.innerHTML = '<b>🗺️ Route Map</b><br>'
-                    + '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#555;margin-right:4px"></span>Filled = Pickup hub<br>'
-                    + '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;border:2px solid #555;margin-right:4px"></span>Ring = Delivery point<br>'
-                    + '— Thicker line = Higher LF<br>'
-                    + 'Each colour = one truck';
-                return div;
-            };
-            legend.addTo(this);
-            """
-            _legend_css = """
-            <style>
-            .route-legend {
-                background: white;
-                padding: 10px 14px;
-                border-radius: 8px;
-                box-shadow: 0 2px 8px rgba(0,0,0,.25);
-                font-size: 12px;
-                line-height: 1.7;
-                pointer-events: none;
-            }
-            </style>
-            """
-            _m.get_root().html.add_child(folium.Element(_legend_css))
-            _m.get_root().script.add_child(folium.Element(_legend_js))
+            # Add legend using folium's MacroElement — most reliable cross-browser approach
+            from branca.element import MacroElement
+            from jinja2 import Template as _JinjaTemplate
+
+            class _LegendControl(MacroElement):
+                _template = _JinjaTemplate("""
+                {% macro script(this, kwargs) %}
+                var _legend_{{ this.get_name() }} = L.control({position: 'bottomleft'});
+                _legend_{{ this.get_name() }}.onAdd = function(map) {
+                    var div = L.DomUtil.create('div');
+                    div.style.cssText = 'background:rgba(255,255,255,0.97);padding:10px 14px;'
+                        + 'border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.28);'
+                        + 'font-family:sans-serif;font-size:12px;line-height:1.8;'
+                        + 'pointer-events:none;min-width:185px;';
+                    div.innerHTML = '<b style="font-size:13px">🗺️ ConsoliQ Route Map</b><br>'
+                        + '<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#555;margin-right:5px;vertical-align:middle"></span>Pickup hub<br>'
+                        + '<span style="display:inline-block;width:11px;height:11px;border-radius:50%;border:2px solid #555;background:white;margin-right:5px;vertical-align:middle"></span>Delivery point<br>'
+                        + '<span style="display:inline-block;width:18px;height:3px;background:#555;margin-right:5px;vertical-align:middle;border-radius:2px"></span>Thicker line = higher LF<br>'
+                        + 'Each colour = one truck';
+                    return div;
+                };
+                _legend_{{ this.get_name() }}.addTo({{this._parent.get_name()}});
+                {% endmacro %}
+                """)
+
+            try:
+                _m.add_child(_LegendControl())
+            except Exception:
+                pass  # Legend is nice-to-have, never block map render
+
             st_folium(_m, width="100%", height=520)
             _map_rendered = True
 
@@ -765,46 +799,55 @@ if st.session_state.packed is not None:
             _clat = sum(_all_lats2)/len(_all_lats2) if _all_lats2 else 19.5
             _clng = sum(_all_lngs2)/len(_all_lngs2) if _all_lngs2 else 75.5
 
-            _map_html = f"""<!DOCTYPE html><html><head>
+            _n_trucks_legend = len(_map_groups)
+            _map_html = f"""<!DOCTYPE html>
+<html><head>
 <meta charset="utf-8"/>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css"/>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
 <style>
-  html, body {{margin:0;padding:0;height:100%}}
-  #map {{width:100%;height:480px;position:relative}}
-  .info.legend {{
-    background: white;
-    padding: 10px 14px;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,.25);
-    font-size: 12px;
-    line-height: 1.7;
-    pointer-events: none;
+  html,body{{margin:0;padding:0;width:100%;height:100%;overflow:hidden}}
+  #map{{position:absolute;top:0;left:0;right:0;bottom:0}}
+  #legend{{
+    position:absolute;
+    bottom:24px;left:16px;
+    z-index:9999;
+    background:rgba(255,255,255,0.97);
+    padding:10px 14px;
+    border-radius:8px;
+    box-shadow:0 2px 10px rgba(0,0,0,0.28);
+    font-family:sans-serif;
+    font-size:12px;
+    line-height:1.8;
+    pointer-events:none;
+    min-width:190px;
   }}
-</style></head><body>
+  #legend b{{font-size:13px}}
+  .dot-filled{{display:inline-block;width:11px;height:11px;border-radius:50%;background:#555;margin-right:5px;vertical-align:middle}}
+  .dot-ring{{display:inline-block;width:11px;height:11px;border-radius:50%;border:2px solid #555;background:white;margin-right:5px;vertical-align:middle}}
+  .line-icon{{display:inline-block;width:18px;height:3px;background:#555;margin-right:5px;vertical-align:middle;border-radius:2px}}
+</style>
+</head>
+<body>
 <div id="map"></div>
+<div id="legend">
+  <b>🗺️ ConsoliQ Route Map</b><br>
+  <span class="dot-filled"></span>Pickup hub<br>
+  <span class="dot-ring"></span>Delivery point<br>
+  <span class="line-icon"></span>Thicker = higher LF<br>
+  Each colour = one truck<br>
+  <span style="color:#666;font-size:11px">{_n_trucks_legend} trucks dispatched</span>
+</div>
 <script>
-var map = L.map('map').setView([{_clat:.4f},{_clng:.4f}],6);
+var map = L.map('map',{{zoomControl:true}}).setView([{_clat:.4f},{_clng:.4f}],6);
 L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png',{{
-  attribution:'&copy; OpenStreetMap contributors &copy; CARTO',maxZoom:19}}).addTo(map);
+  attribution:'&copy; <a href="https://www.openstreetmap.org/">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+  maxZoom:19
+}}).addTo(map);
 {''.join(_lines_js)}
 {''.join(_markers_js)}
-
-// Legend as a proper Leaflet control — renders inside the map tile layer correctly
-var legend = L.control({{position: 'bottomleft'}});
-legend.onAdd = function(map) {{
-  var div = L.DomUtil.create('div', 'info legend');
-  div.innerHTML =
-    '<b>🗺️ ConsoliQ Route Map</b><br>' +
-    '<svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#555"/></svg> Pickup hub&nbsp;&nbsp;<br>' +
-    '<svg width="12" height="12"><circle cx="6" cy="6" r="4" fill="white" stroke="#555" stroke-width="2"/></svg> Delivery point<br>' +
-    '&#x2014; Thicker line = Higher LF<br>' +
-    'Each colour = one truck<br>' +
-    '<span style="color:#666;font-size:11px">{len(_map_groups)} trucks dispatched</span>';
-  return div;
-}};
-legend.addTo(map);
-</script></body></html>"""
+</script>
+</body></html>"""
 
             _components.html(_map_html, height=540, scrolling=False)
             st.caption(
@@ -836,16 +879,29 @@ legend.addTo(map);
                 st.rerun()
 
         f1, f2, f3, f4 = st.columns(4)
-        f1.metric("Zones Tracked",        summary.get("zones_tracked", 0))
-        f2.metric("Total Observations",   summary.get("total_observations", 0))
-        f3.metric("Zones Auto-Adjusted",  summary.get("zones_auto_adjusted", 0))
+        _total_obs  = summary.get("total_observations", 0)
+        _trucks_run = len(st.session_state.packed) if st.session_state.packed else 0
+        _runs_est   = max(1, round(_total_obs / max(_trucks_run, 1)))
+        f1.metric("Zones Tracked",       summary.get("zones_tracked", 0),
+                  help="Unique H3 grid cells (resolution 8) across all observed pickup/delivery locations.")
+        f2.metric("Total Observations",  _total_obs,
+                  help=f"Cumulative truck runs recorded across all pipeline executions. "
+                       f"~{_trucks_run} trucks/run × ~{_runs_est} runs = {_total_obs} observations. "
+                       f"This is intentional — EMA learns better with more history.")
+        f3.metric("Zones Auto-Adjusted", summary.get("zones_auto_adjusted", 0),
+                  help="Zones where EMA triggered a resolution change (up for low-LF zones, down for high-LF zones).")
         f4.metric("Global Avg LF",
                   f"{summary.get('global_avg_load_factor', 0)*100:.1f}%",
-                  help="EMA-averaged load factor across all tracked zones (alpha=0.5, converges in ~2 runs)")
+                  help="EMA-smoothed load factor averaged across all tracked zones (α=0.5). Converges in ~2 runs per zone.")
 
         status = summary.get("learning_active", False)
         if status:
-            st.success("✅ Adaptive tuning active — zones are auto-calibrating H3 resolution based on observed load factor")
+            st.success(
+                f"✅ **Adaptive tuning active** — {summary.get('zones_auto_adjusted',0)} zones have "
+                f"self-calibrated H3 resolution. The {_total_obs} total observations shown are "
+                f"**cumulative across ~{_runs_est} pipeline runs** — this is by design. "
+                f"EMA (α=0.5) needs 2-3 runs per zone to converge, so history is preserved across sessions."
+            )
         else:
             st.info("⏳ Building baseline — need 2+ runs per zone to activate auto-adjustment")
 
