@@ -133,12 +133,16 @@ for key in ["clustered", "routed", "packed", "savings", "feedback_summary"]:
 @st.cache_data(show_spinner=False, ttl=300)
 def _cached_cluster(records_tuple):
     """Cache clustering results — expensive geocoder + union-find step."""
-    return get_valid_groups(list(records_tuple))
+    
+    # Convert tuple back to dictionary
+    records = [dict(r) for r in records_tuple]
+    
+    return get_valid_groups(records)
 
 if run_all or run_step1:
     with st.spinner("Step 1 — Clustering shipments by lane + time window..."):
         # Convert to hashable tuple for cache key
-        _key = tuple(tuple(sorted(s.items())) for s in shipments)
+        _key = tuple(frozenset(s.items()) for s in shipments)
         st.session_state.clustered        = _cached_cluster(_key)
         st.session_state.routed           = None
         st.session_state.packed           = None
