@@ -133,16 +133,20 @@ for key in ["clustered", "routed", "packed", "savings", "feedback_summary"]:
 @st.cache_data(show_spinner=False, ttl=300)
 def _cached_cluster(records_tuple):
     """Cache clustering results — expensive geocoder + union-find step."""
-    
-    # Convert tuple back to dictionary
-    records = [dict(r) for r in records_tuple]
-    
+    import pandas as _pd_inner
+    # Re-read from the CSV to get properly-typed values (avoid str-converting numbers)
+    try:
+        _df = _pd_inner.read_csv("data/shipments.csv")
+        records = _df.to_dict("records")
+    except Exception:
+        # Fallback: reconstruct from tuple (values will be strings for some fields)
+        records = [dict(r) for r in records_tuple]
     return get_valid_groups(records)
 
 if run_all or run_step1:
     with st.spinner("Step 1 — Clustering shipments by lane + time window..."):
-        # Convert to hashable tuple for cache key
-        _key = tuple(frozenset(s.items()) for s in shipments)
+        # Convert to hashable tuple for cache key — use str(v) to handle any value type
+        _key = tuple(tuple(sorted((k, str(v)) for k, v in s.items())) for s in shipments)
         st.session_state.clustered        = _cached_cluster(_key)
         st.session_state.routed           = None
         st.session_state.packed           = None

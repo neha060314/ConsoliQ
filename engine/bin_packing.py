@@ -1051,7 +1051,6 @@ def savings_vs_solo(
         "co2_saving_pct":     round(co2_saved  / solo_co2  * 100, 1) if solo_co2  > 0 else 0.0,
         "trips_saved":        solo_trips - cons_trips,
         "solo_trips":         solo_trips,
-        "solo_trips":         solo_trips,
         "consolidated_trips": cons_trips,
         "solo_cost_inr":      round(solo_cost, 0),
         "solo_co2_kg":        round(solo_co2,  2),

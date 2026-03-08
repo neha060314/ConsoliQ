@@ -190,19 +190,19 @@ def main():
     groups = get_valid_groups(shipments)
 
     # ── Phase 2: Route compatibility filter ───────────────────────────
-    # groups = apply_route_filter(groups)
+    groups = apply_route_filter(groups)
 
     # ── Phase 3: 3D bin packing (weight + volume) ─────────────────────
-    # groups = pack_groups(groups)
+    groups = pack_groups(groups)
 
     # ── Phase 4: Metrics + manifest ───────────────────────────────────
     print_metrics(shipments, groups)
     print_dispatch_summary(groups)
 
     # ── Phase 5: Feedback learning (saves for next run) ───────────────
-    # store = FeedbackStore()
-    # store.record_run(groups, resolution_used=8)
-    # print_feedback_summary(store)
+    store = FeedbackStore()
+    store.record_run(groups, resolution_used=8)
+    print_feedback_summary(store)
 
     logger.info("Pipeline complete.")
 

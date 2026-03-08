@@ -251,6 +251,11 @@ class FeedbackStore:
 
         for group in groups:
             lf = group[0].get("_load_factor", 0.0)
+            # Skip groups with zero or near-zero LF — these are uninitialized groups
+            # that haven't been through bin_packing yet. Recording 0.0 would corrupt
+            # the zone EMA and cause the summary to show artificially low global LF.
+            if lf < 0.01:
+                continue
             for s in group:
                 try:
                     cell = _cell_id(s["pickup_lat"], s["pickup_lng"])
@@ -278,7 +283,10 @@ class FeedbackStore:
             return {"zones_tracked": 0, "message": "No feedback data yet."}
 
         zones      = list(self._data.values())
-        avg_lf     = sum(z["avg_load_factor"] for z in zones) / len(zones)
+        # Only include zones with at least one real observation for the avg LF
+        active_zones = [z for z in zones if z.get("avg_load_factor", 0) > 0.01]
+        avg_lf     = (sum(z["avg_load_factor"] for z in active_zones) / len(active_zones)
+                      if active_zones else 0.0)
         total_runs = sum(z["run_count"] for z in zones)
         adjusted   = sum(1 for z in zones if z["adjustment_log"])
 

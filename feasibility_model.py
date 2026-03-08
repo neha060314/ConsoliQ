@@ -157,9 +157,15 @@ def extract_features(group: List[dict]) -> List[float]:
     route_km       = group[0].get("_route_distance_km", 0.0) or 0.0
     is_corridor    = 1.0 if group[0].get("_is_corridor", False) else 0.0
 
-    # Normalise detour (stored as 1.05x → convert to 0.05)
-    if max_detour > 1:
+    # Normalise detour: stored as multiplier (1.05x) → convert to offset (0.05)
+    # For singletons (n==1) there is no multi-drop detour, so detour = 0.
+    # Also handle exactly 1.0 (no detour) correctly.
+    if n == 1:
+        max_detour = 0.0
+    elif max_detour >= 1.0:
         max_detour = max_detour - 1.0
+    else:
+        max_detour = 0.0  # shouldn't happen but guard against <1 values
 
     return [
         float(n),
@@ -211,24 +217,42 @@ def _synthesize_training_data(n_samples: int = 2000) -> Tuple[List[List[float]],
         # Label logic — mirrors the engine's consolidation quality rules:
         #   HIGH LF factors: high weight fraction, low bearing spread, low detour,
         #                     tight delivery cluster, long overlap window
-        #   LOW LF factors: singletons, wide bearing spread, high detour,
-        #                    dispersed deliveries, very short time window
-        feasible = True
+        #   LOW LF factors: singletons with light loads, wide bearing spread,
+        #                    high detour, dispersed deliveries, very short time window
+        #
+        # Rules are probabilistic (not hard thresholds) to produce a smooth
+        # score distribution (HIGH / MEDIUM / LOW), not a binary split.
+        score = 0.5  # start neutral
 
-        if wt_frac < 0.35 and n_ships == 1:         feasible = False  # singleton, light load
-        if wt_frac < 0.55 and delivery_spread > 150: feasible = False  # too dispersed for weight
-        if bearing_spread > 12:                       feasible = False  # directionally inconsistent
-        if detour > 0.25:                             feasible = False  # excessive detour
-        if overlap_h < 2:                             feasible = False  # time windows don't mesh
-        if delivery_spread > 200 and n_ships <= 2:   feasible = False  # wide delivery, few ships
-        # Positive signals
-        if wt_frac > 0.75 and bearing_spread < 5:    feasible = True   # heavy + aligned = good
-        if n_ships >= 3 and wt_frac > 0.55:          feasible = True   # multi-ship, decent weight
-        if n_ships == 1 and wt_frac > 0.85:          feasible = True   # singleton FTL is fine
+        # Weight fill — most important signal
+        score += (wt_frac - 0.5) * 0.6  # +0.3 at 100%, -0.3 at 0%
 
-        # Add noise (~8%)
-        if rng.random() < 0.08:
-            feasible = not feasible
+        # Bearing spread — directional consistency
+        score -= min(0.25, bearing_spread / 40)  # -0.25 at 10°, was /20 causing too-harsh penalty
+
+        # Detour — route efficiency
+        score -= min(0.20, detour * 0.5)
+
+        # Delivery spread — cluster tightness
+        score -= min(0.15, delivery_spread / 600)
+
+        # Time window overlap
+        score += min(0.10, overlap_h / 12)
+
+        # Multi-shipment bonus
+        if n_ships >= 2:
+            score += 0.08
+        if n_ships >= 3:
+            score += 0.05
+
+        # Singleton with heavy load: not penalised (it's a necessary dispatch)
+        if n_ships == 1 and wt_frac > 0.80:
+            score = max(score, 0.55)  # at least MEDIUM
+
+        # Add noise (~10%) to avoid over-confident boundaries
+        score += rng.uniform(-0.08, 0.08)
+        score = max(0.05, min(0.95, score))
+        feasible = score >= 0.50
 
         X.append([n_ships, total_wt, wt_frac, bearing_spread, detour,
                   delivery_spread, pickup_spread, avg_wt, overlap_h,
@@ -362,12 +386,13 @@ class FeasibilityPredictor:
          goods_div, route_km, is_corridor) = features
 
         score = 0.5
-        score += min(0.25, wt_frac * 0.3)
-        score -= min(0.25, bearing_spread / 50)
-        score -= min(0.20, detour * 0.6)
-        score -= min(0.15, delivery_spread / 1000)
-        score += min(0.10, overlap_h / 48)
-        if n_ships >= 2: score += 0.05
+        score += (wt_frac - 0.5) * 0.6
+        score -= min(0.25, bearing_spread / 40)
+        score -= min(0.20, detour * 0.5)
+        score -= min(0.15, delivery_spread / 600)
+        score += min(0.10, overlap_h / 12)
+        if n_ships >= 2: score += 0.08
+        if n_ships == 1 and wt_frac > 0.80: score = max(score, 0.55)
         return max(0.0, min(1.0, score))
 
     def _explain(self, features: List[float], score: float) -> str:
@@ -389,9 +414,13 @@ class FeasibilityPredictor:
 
         if detour > 0.20:
             reasons.append(f"high detour ({detour:.0%} over direct)")
-        elif detour > 0.0 and detour < 0.05:
+        elif detour > 0.05:
+            reasons.append(f"moderate detour ({detour:.0%} over direct)")
+        elif detour == 0.0 and n_ships > 1:
             reasons.append("minimal detour")
-        elif detour == 0.0:
+        elif n_ships == 1:
+            reasons.append("direct route (single stop)")
+        else:
             reasons.append("direct route (no multi-drop detour)")
 
         if delivery_spread > 150:

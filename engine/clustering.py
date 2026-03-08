@@ -857,9 +857,12 @@ def _second_pass_singleton_regroup(groups: List[List[dict]]) -> List[List[dict]]
             new_groups.append(current_bin)
         elif len(current_bin) == 1:
             # Put this one back as singleton — remove from absorbed
+            # Use shipment_id for identity, not Python 'is' (breaks after copy.copy)
+            lone_sid = current_bin[0].get("shipment_id")
             for idx in available:
-                if groups[idx][0] is current_bin[0]:
+                if groups[idx][0].get("shipment_id") == lone_sid:
                     absorbed.discard(idx)
+                    break
 
     # Build final list: keep non-absorbed groups, add new merged groups
     result = [g for i, g in enumerate(groups) if i not in absorbed]
