@@ -750,11 +750,12 @@ if st.session_state.packed is not None:
                         + 'border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.28);'
                         + 'font-family:sans-serif;font-size:12px;line-height:1.8;'
                         + 'pointer-events:none;min-width:185px;';
-                    div.innerHTML = '<b style="font-size:13px">🗺️ ConsoliQ Route Map</b><br>'
-                        + '<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#555;margin-right:5px;vertical-align:middle"></span>Pickup hub<br>'
-                        + '<span style="display:inline-block;width:11px;height:11px;border-radius:50%;border:2px solid #555;background:white;margin-right:5px;vertical-align:middle"></span>Delivery point<br>'
-                        + '<span style="display:inline-block;width:18px;height:3px;background:#555;margin-right:5px;vertical-align:middle;border-radius:2px"></span>Thicker line = higher LF<br>'
-                        + 'Each colour = one truck';
+                    div.style.color = '#111111';
+                    div.innerHTML = '<b style="font-size:13px;color:#111111;">🗺️ ConsoliQ Route Map</b><br>'
+                        + '<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#444;margin-right:5px;vertical-align:middle;"></span><span style="color:#111111;">Pickup hub</span><br>'
+                        + '<span style="display:inline-block;width:11px;height:11px;border-radius:50%;border:2px solid #444;background:#fff;margin-right:5px;vertical-align:middle;"></span><span style="color:#111111;">Delivery point</span><br>'
+                        + '<span style="display:inline-block;width:18px;height:3px;background:#444;margin-right:5px;vertical-align:middle;border-radius:2px;"></span><span style="color:#111111;">Thicker = higher LF</span><br>'
+                        + '<span style="color:#111111;">Each colour = one truck</span>';
                     return div;
                 };
                 _legend_{{ this.get_name() }}.addTo({{this._parent.get_name()}});
@@ -819,40 +820,18 @@ if st.session_state.packed is not None:
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css"/>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
 <style>
-  html,body{{margin:0;padding:0;width:100%;height:100%;overflow:hidden}}
-  #map{{position:absolute;top:0;left:0;right:0;bottom:0}}
-  #legend{{
-    position:absolute;
-    bottom:24px;left:16px;
-    z-index:9999;
-    background:rgba(255,255,255,0.97) !important;
-    color:#222222 !important;
-    padding:10px 14px;
-    border-radius:8px;
-    box-shadow:0 2px 10px rgba(0,0,0,0.28);
-    font-family:Arial,sans-serif;
-    font-size:12px;
-    line-height:1.8;
-    pointer-events:none;
-    min-width:190px;
-  }}
-  #legend *{{color:#222222 !important;}}
-  #legend b{{font-size:13px;font-weight:700}}
-  #legend .muted{{color:#555555 !important;font-size:11px}}
-  .dot-filled{{display:inline-block;width:11px;height:11px;border-radius:50%;background:#444;margin-right:5px;vertical-align:middle}}
-  .dot-ring{{display:inline-block;width:11px;height:11px;border-radius:50%;border:2.5px solid #444;background:white;margin-right:5px;vertical-align:middle}}
-  .line-icon{{display:inline-block;width:20px;height:3px;background:#444;margin-right:5px;vertical-align:middle;border-radius:2px}}
-</style>
-</head>
+  html,body{{margin:0;padding:0;width:100%;height:100%;overflow:hidden;}}
+  #map{{position:absolute;top:0;left:0;right:0;bottom:0;}}
+</style></head>
 <body>
 <div id="map"></div>
-<div id="legend">
-  <b style="color:#111;font-size:13px">🗺️ ConsoliQ Route Map</b><br>
-  <span class="dot-filled"></span><span style="color:#222">Pickup hub</span><br>
-  <span class="dot-ring"></span><span style="color:#222">Delivery point</span><br>
-  <span class="line-icon"></span><span style="color:#222">Thicker line = higher LF</span><br>
-  <span style="color:#222">Each colour = one truck</span><br>
-  <span style="color:#555;font-size:11px">{_n_trucks_legend} trucks dispatched</span>
+<div style="position:absolute;bottom:20px;left:14px;z-index:9999;background:#ffffff;border:1px solid #d0d0d0;padding:10px 14px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.25);font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:2.0;pointer-events:none;min-width:185px;">
+  <div style="font-size:13px;font-weight:bold;color:#111111;margin-bottom:3px;">&#128506; ConsoliQ Route Map</div>
+  <div><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#444444;margin-right:6px;vertical-align:middle;flex-shrink:0;"></span><span style="color:#111111;">Pickup hub</span></div>
+  <div><span style="display:inline-block;width:11px;height:11px;border-radius:50%;border:2px solid #444444;background:#ffffff;margin-right:6px;vertical-align:middle;flex-shrink:0;"></span><span style="color:#111111;">Delivery point</span></div>
+  <div><span style="display:inline-block;width:20px;height:3px;background:#444444;margin-right:6px;vertical-align:middle;border-radius:2px;flex-shrink:0;"></span><span style="color:#111111;">Thicker = higher LF</span></div>
+  <div style="color:#111111;">Each colour = one truck</div>
+  <div style="color:#666666;font-size:11px;">{_n_trucks_legend} trucks dispatched</div>
 </div>
 <script>
 var map = L.map('map',{{zoomControl:true}}).setView([{_clat:.4f},{_clng:.4f}],6);
