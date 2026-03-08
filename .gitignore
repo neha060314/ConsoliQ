@@ -1,0 +1,67 @@
+# ══════════════════════════════════════════════
+# ConsoliQ — AI Load Consolidation Engine
+# .gitignore
+# ══════════════════════════════════════════════
+
+# ── Python cache ──────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+
+# ── Virtual environment ───────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── IDE / Editor ──────────────────────────────
+.vscode/
+.idea/
+*.code-workspace
+
+# ── Data files (can be large / sensitive) ─────
+data/shipments.csv
+data/*.csv
+data/*.xlsx
+data/*.json
+# Keep feedback_store.json structure but not real data:
+# If you want to commit an empty template, uncomment below:
+# !data/feedback_store_template.json
+
+# ── Generated outputs / reports ───────────────
+*.png
+dispatch_report.png
+*.pdf
+*.log
+
+# ── Geocoding cache ───────────────────────────
+.geocache/
+geocoding/
+
+# ── Environment variables / secrets ──────────
+.env
+.env.*
+*.secret
+config/secrets.py
+
+# ── OS files ──────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Byte-compiled / dist ──────────────────────
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Jupyter (if used) ─────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Test artifacts ────────────────────────────
+.pytest_cache/
+htmlcov/
+.coverage
